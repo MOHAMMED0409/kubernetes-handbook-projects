@@ -1,0 +1,499 @@
+📘 Module 4: Storage
+
+🔹 Topics:
+- Volumes
+- Persistent Volumes (PV)
+- Persistent Volume Claims (PVC)
+- Storage Classes
+
+📒 Notes:
+- Volumes are ephemeral unless PVs are used
+- PVC is a user request for storage
+- StorageClass automates provisioning
+
+🧪 Practice Project:
+- Deploy a MySQL app with PersistentVolume for data
+
+📖 Detailed Answers:
+
+🔹 Volumes
+
+**Volumes** in Kubernetes provide a way to store data that persists beyond the lifetime of a pod. They can be shared between containers in the same pod and survive pod restarts.
+
+Key characteristics:
+- Ephemeral by default (data lost when pod is deleted)
+- Can be shared between containers in the same pod
+- Support various storage backends
+- Can be mounted at specific paths in containers
+
+Types of Volumes:
+
+1. **emptyDir Volume:**
+- Temporary storage that exists as long as the pod exists
+- Shared between containers in the same pod
+- Data is lost when pod is deleted
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: volume-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+    volumeMounts:
+    - name: shared-data
+      mountPath: /shared
+  - name: sidecar
+    image: busybox
+    command: ['sh', '-c', 'while true; do echo "Hello" >> /shared/log.txt; sleep 10; done']
+    volumeMounts:
+    - name: shared-data
+      mountPath: /shared
+  volumes:
+  - name: shared-data
+    emptyDir: {}
+```
+
+2. **hostPath Volume:**
+- Mounts a file or directory from the host node's filesystem
+- Useful for accessing host system files
+- Can be a security risk
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hostpath-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+    volumeMounts:
+    - name: host-data
+      mountPath: /host-data
+  volumes:
+  - name: host-data
+    hostPath:
+      path: /data
+      type: DirectoryOrCreate
+```
+
+3. **ConfigMap Volume:**
+- Mounts ConfigMap data as files
+- Useful for configuration files
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: configmap-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+    volumeMounts:
+    - name: config-volume
+      mountPath: /etc/config
+  volumes:
+  - name: config-volume
+    configMap:
+      name: app-config
+```
+
+4. **Secret Volume:**
+- Mounts Secret data as files
+- Useful for sensitive configuration
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secret-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+    volumeMounts:
+    - name: secret-volume
+      mountPath: /etc/secrets
+      readOnly: true
+  volumes:
+  - name: secret-volume
+    secret:
+      secretName: app-secret
+```
+
+🔹 Persistent Volumes (PV)
+
+**Persistent Volumes** are cluster-level storage resources that exist independently of pods. They provide a way to store data that persists beyond the lifetime of individual pods.
+
+Key features:
+- Cluster-wide resource
+- Can be statically or dynamically provisioned
+- Support various storage backends (NFS, AWS EBS, GCP PD, etc.)
+- Have specific access modes and capacity
+
+PV Access Modes:
+- **ReadWriteOnce (RWO)**: Single node can mount as read-write
+- **ReadOnlyMany (ROX)**: Multiple nodes can mount as read-only
+- **ReadWriteMany (RWX)**: Multiple nodes can mount as read-write
+
+Example PV (NFS):
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs-storage
+  nfs:
+    server: nfs-server.example.com
+    path: /exports/data
+```
+
+Example PV (AWS EBS):
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: aws-ebs-pv
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: ebs-storage
+  awsElasticBlockStore:
+    volumeID: vol-12345678
+    fsType: ext4
+```
+
+🔹 Persistent Volume Claims (PVC)
+
+**Persistent Volume Claims** are requests for storage by users. They act as a request slip for storage resources and can request specific size and access modes.
+
+Key features:
+- User requests for storage
+- Can specify storage class, size, and access modes
+- Automatically bound to available PVs
+- Can be used by pods
+
+Example PVC:
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: app-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: fast-ssd
+```
+
+Using PVC in Pod:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: mysql:8.0
+    volumeMounts:
+    - name: data-volume
+      mountPath: /var/lib/mysql
+  volumes:
+  - name: data-volume
+    persistentVolumeClaim:
+      claimName: app-pvc
+```
+
+🔹 Storage Classes
+
+**Storage Classes** provide a way to describe the "classes" of storage available. They allow administrators to define different classes of storage that map to quality-of-service levels or backup policies.
+
+Key features:
+- Define storage provisioners
+- Set default parameters for dynamic provisioning
+- Allow different storage tiers (fast, slow, cheap, expensive)
+- Automate PV creation
+
+Example StorageClass:
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+```
+
+StorageClass with different tiers:
+```yaml
+# Fast SSD Storage
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: fast-ssd
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp3
+  iops: "3000"
+volumeBindingMode: WaitForFirstConsumer
+---
+# Slow HDD Storage
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: slow-hdd
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+volumeBindingMode: WaitForFirstConsumer
+```
+
+Default StorageClass:
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: standard
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: kubernetes.io/aws-ebs
+parameters:
+  type: gp2
+volumeBindingMode: WaitForFirstConsumer
+```
+
+🧪 Practice Project Steps:
+
+1. Create StorageClass for local storage:
+
+```yaml
+# storage-class.yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+```
+
+2. Create PersistentVolume:
+
+```yaml
+# mysql-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mysql-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  local:
+    path: /mnt/data/mysql
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+      - matchExpressions:
+        - key: kubernetes.io/hostname
+          operator: In
+          values:
+          - minikube
+```
+
+3. Create PersistentVolumeClaim:
+
+```yaml
+# mysql-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mysql-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: local-storage
+```
+
+4. Create MySQL Secret:
+
+```bash
+# Create secret for MySQL
+kubectl create secret generic mysql-secret \
+  --from-literal=mysql-root-password=secretpassword \
+  --from-literal=mysql-database=myapp
+```
+
+5. Create MySQL Deployment:
+
+```yaml
+# mysql-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+      - name: mysql
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-root-password
+        - name: MYSQL_DATABASE
+          valueFrom:
+            secretKeyRef:
+              name: mysql-secret
+              key: mysql-database
+        volumeMounts:
+        - name: mysql-data
+          mountPath: /var/lib/mysql
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: mysql-data
+        persistentVolumeClaim:
+          claimName: mysql-pvc
+```
+
+6. Create MySQL Service:
+
+```yaml
+# mysql-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-service
+spec:
+  type: ClusterIP
+  selector:
+    app: mysql
+  ports:
+  - port: 3306
+    targetPort: 3306
+```
+
+7. Deploy the complete application:
+
+```bash
+# Apply all resources
+kubectl apply -f storage-class.yaml
+kubectl apply -f mysql-pv.yaml
+kubectl apply -f mysql-pvc.yaml
+kubectl apply -f mysql-deployment.yaml
+kubectl apply -f mysql-service.yaml
+
+# Check resources
+kubectl get pv
+kubectl get pvc
+kubectl get pods
+kubectl get services
+```
+
+8. Test the MySQL connection:
+
+```bash
+# Port forward to MySQL
+kubectl port-forward service/mysql-service 3306:3306
+
+# Connect to MySQL (in another terminal)
+mysql -h 127.0.0.1 -P 3306 -u root -p
+
+# Create a test table
+USE myapp;
+CREATE TABLE users (id INT, name VARCHAR(50));
+INSERT INTO users VALUES (1, 'John Doe');
+SELECT * FROM users;
+```
+
+9. Test data persistence:
+
+```bash
+# Delete the pod to test persistence
+kubectl delete pod -l app=mysql
+
+# Wait for new pod to start
+kubectl get pods -w
+
+# Connect to MySQL again and verify data
+mysql -h 127.0.0.1 -P 3306 -u root -p
+USE myapp;
+SELECT * FROM users;  # Data should still be there
+```
+
+10. Advanced storage operations:
+
+```bash
+# Check PV status
+kubectl describe pv mysql-pv
+
+# Check PVC status
+kubectl describe pvc mysql-pvc
+
+# Check storage classes
+kubectl get storageclass
+
+# Expand PVC (if supported)
+kubectl patch pvc mysql-pvc -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'
+
+# Backup data
+kubectl exec -it $(kubectl get pod -l app=mysql -o jsonpath='{.items[0].metadata.name}') -- mysqldump -u root -p myapp > backup.sql
+```
+
+11. Cleanup:
+
+```bash
+# Delete all resources
+kubectl delete deployment mysql
+kubectl delete service mysql-service
+kubectl delete pvc mysql-pvc
+kubectl delete pv mysql-pv
+kubectl delete secret mysql-secret
+kubectl delete storageclass local-storage
+```
+
+This comprehensive guide covers all storage aspects in Kubernetes, from basic volumes to advanced persistent storage management, with practical examples and a complete MySQL application deployment demonstrating data persistence.

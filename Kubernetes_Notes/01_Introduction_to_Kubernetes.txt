@@ -1,0 +1,170 @@
+📘 Module 1: Introduction to Containers & Kubernetes
+
+🔹 Topics:
+- What are Containers?
+- Introduction to Docker (basic usage)
+- Why Kubernetes?
+- Kubernetes Architecture: Master & Node components
+
+📒 Notes:
+- Docker helps package apps into containers.
+- Kubernetes (K8s) orchestrates containers across a cluster.
+- Key Components:
+  - kube-apiserver, kube-scheduler, kube-controller-manager, kubelet, kube-proxy
+
+🧪 Practice Project:
+- Install Minikube and kubectl
+- Run a simple nginx pod: kubectl run nginx --image=nginx
+
+📖 Detailed Answers:
+
+🔹 What are Containers?
+Containers are lightweight, portable, and self-contained units that package an application along with all its dependencies, libraries, and configuration files needed to run. Think of them as standardized units that can run consistently across different environments.
+
+Key characteristics:
+- Isolation: Each container runs in its own isolated environment
+- Portability: Can run on any system that supports the container runtime
+- Efficiency: Share the host OS kernel but run in isolated user spaces
+- Consistency: Same container runs identically in development, testing, and production
+
+Example: A Node.js application container includes the Node.js runtime, your application code, and all npm dependencies, ensuring it runs the same way everywhere.
+
+🔹 Introduction to Docker (Basic Usage)
+Docker is the most popular containerization platform that helps create, deploy, and run applications in containers.
+
+Basic Docker Commands:
+```bash
+# Build an image from a Dockerfile
+docker build -t my-app .
+
+# Run a container from an image
+docker run -d -p 3000:3000 my-app
+
+# List running containers
+docker ps
+
+# Stop a container
+docker stop <container-id>
+
+# Remove a container
+docker rm <container-id>
+
+# List images
+docker images
+```
+
+Dockerfile Example:
+```dockerfile
+FROM node:16
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
+```
+
+🔹 Why Kubernetes?
+Kubernetes is needed because:
+
+1. Container Orchestration: When you have hundreds or thousands of containers across multiple servers, you need a way to manage them efficiently.
+
+2. High Availability: Automatically replaces failed containers and distributes load across healthy instances.
+
+3. Scalability: Can automatically scale applications up or down based on demand.
+
+4. Resource Management: Efficiently allocates CPU, memory, and storage resources.
+
+5. Service Discovery: Automatically finds and connects services to each other.
+
+6. Rolling Updates: Updates applications without downtime.
+
+Real-world scenario: Instead of manually managing 50 containers across 10 servers, Kubernetes handles deployment, scaling, monitoring, and recovery automatically.
+
+🔹 Kubernetes Architecture: Master & Node Components
+
+Master Node Components (Control Plane):
+
+1. kube-apiserver: 
+   - The front-end of the Kubernetes control plane
+   - Exposes the Kubernetes API
+   - Handles all administrative operations
+
+2. kube-scheduler: 
+   - Watches for newly created pods with no assigned node
+   - Selects the best node for pods to run on based on resource requirements
+
+3. kube-controller-manager: 
+   - Runs controller processes (Node Controller, Replication Controller, etc.)
+   - Ensures the desired state matches the actual state
+
+4. etcd: 
+   - Distributed key-value store
+   - Stores all cluster data and configuration
+
+Worker Node Components:
+
+1. kubelet: 
+   - Primary node agent that runs on each node
+   - Ensures containers are running in a pod
+   - Manages the lifecycle of pods
+
+2. kube-proxy: 
+   - Network proxy that maintains network rules
+   - Enables communication between pods and services
+   - Handles load balancing
+
+3. Container Runtime: 
+   - Software responsible for running containers (Docker, containerd, etc.)
+
+🧪 Practice Project Steps:
+
+1. Install Minikube and kubectl:
+```bash
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/darwin/amd64/kubectl"
+chmod +x kubectl
+sudo mv kubectl /usr/local/bin/
+
+# Install Minikube
+curl -LO https://storage.googleapis.com/minikube/releases/latest/minikube-darwin-amd64
+sudo install minikube-darwin-amd64 /usr/local/bin/minikube
+
+# Start Minikube
+minikube start
+```
+
+2. Run a simple nginx pod:
+```bash
+# Create and run nginx pod
+kubectl run nginx --image=nginx
+
+# Check pod status
+kubectl get pods
+
+# Get detailed information about the pod
+kubectl describe pod nginx
+
+# Access the nginx pod (port forward)
+kubectl port-forward nginx 8080:80
+```
+
+3. Additional useful commands:
+```bash
+# View cluster information
+kubectl cluster-info
+
+# Get all resources
+kubectl get all
+
+# View logs
+kubectl logs nginx
+
+# Execute commands in the pod
+kubectl exec -it nginx -- /bin/bash
+
+# Delete the pod
+kubectl delete pod nginx
+```
+
+This foundation sets you up for understanding how containers work, why Kubernetes is essential for managing them at scale, and how the Kubernetes architecture enables reliable container orchestration.

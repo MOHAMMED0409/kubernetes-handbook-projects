@@ -1,0 +1,8 @@
+📘 Module 10: Real-World Projects
+
+🔹 Project Ideas:
+1. To-Do App with Frontend + Backend + DB
+2. E-commerce Microservices App (Cart, Orders, Products)
+3. URL Shortener with Redis
+4. Personal Blog with CMS like Ghost
+5. Monitoring Dashboard with Node Exporter + Prometheus + Grafana

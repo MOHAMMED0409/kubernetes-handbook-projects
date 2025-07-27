@@ -1,0 +1,875 @@
+📘 Module 9: Security
+
+🔹 Topics:
+- RBAC
+- Network Policies
+- Pod Security Policies / Admission Controllers
+- Image Security
+
+📒 Notes:
+- Role/RoleBinding: fine-grained access
+- ServiceAccount used by Pods
+
+🧪 Practice Project:
+- Implement RBAC to restrict access to specific namespaces
+
+📖 Detailed Answers:
+
+🔹 RBAC (Role-Based Access Control)
+
+**RBAC** is a method of regulating access to computer or network resources based on the roles of individual users within an organization.
+
+Key components:
+- **Role**: Defines permissions for resources within a namespace
+- **ClusterRole**: Defines permissions for cluster-wide resources
+- **RoleBinding**: Binds a role to users, groups, or ServiceAccounts within a namespace
+- **ClusterRoleBinding**: Binds a cluster role to users, groups, or ServiceAccounts cluster-wide
+- **ServiceAccount**: An identity for processes that run in a Pod
+
+RBAC API Resources:
+```yaml
+# Role - namespace-scoped permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: pod-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: [""]
+  resources: ["pods/log"]
+  verbs: ["get"]
+
+# ClusterRole - cluster-wide permissions
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: secret-reader
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "watch", "list"]
+
+# RoleBinding - binds role to subjects
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: read-pods
+  namespace: default
+subjects:
+- kind: User
+  name: jane
+  apiGroup: rbac.authorization.k8s.io
+- kind: ServiceAccount
+  name: default
+  namespace: default
+roleRef:
+  kind: Role
+  name: pod-reader
+  apiGroup: rbac.authorization.k8s.io
+
+# ClusterRoleBinding - binds cluster role to subjects
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: read-secrets-global
+subjects:
+- kind: User
+  name: admin
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: secret-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+ServiceAccount Example:
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: myapp-sa
+  namespace: default
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      serviceAccountName: myapp-sa  # Use the ServiceAccount
+      containers:
+      - name: myapp
+        image: nginx
+```
+
+Common RBAC Patterns:
+
+1. **Namespace Admin Role:**
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: myapp
+  name: namespace-admin
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: namespace-admin-binding
+  namespace: myapp
+subjects:
+- kind: User
+  name: developer
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: Role
+  name: namespace-admin
+  apiGroup: rbac.authorization.k8s.io
+```
+
+2. **Read-Only Role:**
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: read-only
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+```
+
+3. **Pod Management Role:**
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: default
+  name: pod-manager
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+```
+
+RBAC Commands:
+```bash
+# Check user permissions
+kubectl auth can-i get pods
+kubectl auth can-i create deployments --namespace=default
+
+# Check permissions for specific user
+kubectl auth can-i get pods --as=developer
+
+# Get role bindings
+kubectl get rolebindings
+kubectl get clusterrolebindings
+
+# Describe role binding
+kubectl describe rolebinding read-pods
+
+# Create role from command line
+kubectl create role pod-reader --verb=get,list,watch --resource=pods
+
+# Create role binding from command line
+kubectl create rolebinding read-pods --role=pod-reader --user=jane
+```
+
+🔹 Network Policies
+
+**Network Policies** allow you to control traffic flow between pods and namespaces, acting as a firewall for your cluster.
+
+Network Policy Components:
+- **Pod Selectors**: Define which pods the policy applies to
+- **Ingress Rules**: Control incoming traffic
+- **Egress Rules**: Control outgoing traffic
+- **Policy Types**: Ingress, Egress, or both
+
+Default Deny All Policy:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+```
+
+Allow All Traffic:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}
+  egress:
+  - {}
+```
+
+Application-specific Network Policy:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: myapp
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - protocol: TCP
+      port: 8080
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: database
+    ports:
+    - protocol: TCP
+      port: 3306
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+```
+
+Multi-tier Application Network Policy:
+```yaml
+# Frontend Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+spec:
+  podSelector:
+    matchLabels:
+      tier: frontend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+# Backend Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: backend-policy
+spec:
+  podSelector:
+    matchLabels:
+      tier: backend
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          tier: frontend
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          tier: database
+    ports:
+    - protocol: TCP
+      port: 3306
+---
+# Database Network Policy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      tier: database
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          tier: backend
+    ports:
+    - protocol: TCP
+      port: 3306
+```
+
+🔹 Pod Security Policies / Admission Controllers
+
+**Pod Security Standards (PSS)** and **Pod Security Admission (PSA)** are the modern replacements for Pod Security Policies.
+
+Pod Security Standards:
+- **Privileged**: Unrestricted policy, provides the widest possible level of permissions
+- **Baseline**: Minimally restrictive policy which prevents known privilege escalations
+- **Restricted**: Heavily restricted policy, following current Pod hardening best practices
+
+Pod Security Admission Configuration:
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: myapp
+  labels:
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce-version: v1.24
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: v1.24
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/warn-version: v1.24
+```
+
+Admission Controllers:
+```yaml
+# Enable admission controllers in kube-apiserver
+apiVersion: v1
+kind: Pod
+metadata:
+  name: kube-apiserver
+spec:
+  containers:
+  - name: kube-apiserver
+    command:
+    - kube-apiserver
+    - --enable-admission-plugins=NodeRestriction,PodSecurityPolicy,ResourceQuota
+    - --disable-admission-plugins=ServiceAccount
+```
+
+Security Context Examples:
+
+1. **Non-root Container:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secure-app
+  template:
+    metadata:
+      labels:
+        app: secure-app
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      containers:
+      - name: app
+        image: nginx
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+```
+
+2. **Privileged Container (for system components):**
+```yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: privileged-component
+spec:
+  selector:
+    matchLabels:
+      app: privileged-component
+  template:
+    metadata:
+      labels:
+        app: privileged-component
+    spec:
+      containers:
+      - name: component
+        image: system-component:latest
+        securityContext:
+          privileged: true
+          runAsUser: 0
+```
+
+🔹 Image Security
+
+**Image Security** involves ensuring that container images are secure, up-to-date, and free from vulnerabilities.
+
+Image Security Best Practices:
+
+1. **Use Specific Image Tags:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        image: nginx:1.21.6-alpine  # Specific version and distro
+        # Avoid: image: nginx:latest
+```
+
+2. **Image Pull Policy:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: app
+        image: myapp:v1.2.3
+        imagePullPolicy: Always  # Always pull from registry
+```
+
+3. **Private Registry Authentication:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: registry-secret
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: <base64-encoded-docker-config>
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+      - name: registry-secret
+      containers:
+      - name: app
+        image: private-registry.com/myapp:v1.0.0
+```
+
+4. **Image Scanning with Trivy:**
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: image-scanner
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: trivy
+            image: aquasec/trivy:latest
+            command:
+            - trivy
+            - image
+            - --format=json
+            - --output=/reports/scan.json
+            - myapp:v1.0.0
+            volumeMounts:
+            - name: reports
+              mountPath: /reports
+          volumes:
+          - name: reports
+            emptyDir: {}
+          restartPolicy: OnFailure
+```
+
+5. **Image Signing with Cosign:**
+```bash
+# Sign an image
+cosign sign -key cosign.key myapp:v1.0.0
+
+# Verify image signature
+cosign verify -key cosign.pub myapp:v1.0.0
+
+# Attach SBOM
+cosign attach sbom myapp:v1.0.0 sbom.json
+```
+
+6. **Gatekeeper Policies for Image Security:**
+```yaml
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: Config
+metadata:
+  name: config
+  namespace: gatekeeper-system
+spec:
+  sync:
+    syncOnly:
+    - group: ""
+      version: "v1"
+      kind: "Pod"
+  validation:
+    - name: image-security
+      kind: ConstraintTemplate
+      spec:
+        crd:
+          spec:
+            names:
+              kind: ImageSecurity
+        targets:
+        - target: admission.k8s.gatekeeper.sh
+          rego: |
+            package image.security
+            
+            violation[{"msg": msg}] {
+              input.review.object.spec.containers[_].image
+              not startswith(input.review.object.spec.containers[_].image, "my-registry.com/")
+              msg := sprintf("Image must come from approved registry: %v", [input.review.object.spec.containers[_].image])
+            }
+```
+
+🧪 Practice Project Steps:
+
+1. Create namespace and ServiceAccount:
+
+```bash
+# Create namespace
+kubectl create namespace secure-app
+
+# Create ServiceAccount
+kubectl create serviceaccount app-sa -n secure-app
+```
+
+2. Create RBAC roles and bindings:
+
+```yaml
+# rbac-config.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: secure-app
+  name: app-role
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services", "configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-role-binding
+  namespace: secure-app
+subjects:
+- kind: ServiceAccount
+  name: app-sa
+  namespace: secure-app
+roleRef:
+  kind: Role
+  name: app-role
+  apiGroup: rbac.authorization.k8s.io
+```
+
+3. Apply RBAC configuration:
+
+```bash
+# Apply RBAC
+kubectl apply -f rbac-config.yaml
+
+# Verify role binding
+kubectl get rolebinding app-role-binding -n secure-app
+```
+
+4. Create secure application deployment:
+
+```yaml
+# secure-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secure-app
+  namespace: secure-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: secure-app
+  template:
+    metadata:
+      labels:
+        app: secure-app
+    spec:
+      serviceAccountName: app-sa
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 2000
+      containers:
+      - name: app
+        image: nginx:1.21.6-alpine
+        ports:
+        - containerPort: 80
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: varlog
+          mountPath: /var/log
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: varlog
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: secure-app-service
+  namespace: secure-app
+spec:
+  selector:
+    app: secure-app
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+5. Apply secure application:
+
+```bash
+# Apply secure app
+kubectl apply -f secure-app.yaml
+
+# Check deployment
+kubectl get pods -n secure-app
+kubectl describe pod -l app=secure-app -n secure-app
+```
+
+6. Create network policies:
+
+```yaml
+# network-policies.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: secure-app-policy
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      app: secure-app
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+```
+
+7. Apply network policies:
+
+```bash
+# Apply network policies
+kubectl apply -f network-policies.yaml
+
+# Check network policies
+kubectl get networkpolicies -n secure-app
+```
+
+8. Test RBAC restrictions:
+
+```bash
+# Test as different user
+kubectl auth can-i get pods --as=system:serviceaccount:secure-app:app-sa -n secure-app
+kubectl auth can-i create deployments --as=system:serviceaccount:secure-app:app-sa -n secure-app
+
+# Test cross-namespace access
+kubectl auth can-i get pods --as=system:serviceaccount:secure-app:app-sa -n default
+```
+
+9. Set up Pod Security Standards:
+
+```bash
+# Label namespace for Pod Security Standards
+kubectl label namespace secure-app pod-security.kubernetes.io/enforce=baseline
+kubectl label namespace secure-app pod-security.kubernetes.io/audit=restricted
+kubectl label namespace secure-app pod-security.kubernetes.io/warn=restricted
+
+# Verify labels
+kubectl get namespace secure-app --show-labels
+```
+
+10. Create image scanning job:
+
+```yaml
+# image-scanner.yaml
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: image-scanner
+  namespace: secure-app
+spec:
+  template:
+    spec:
+      containers:
+      - name: scanner
+        image: aquasec/trivy:latest
+        command:
+        - trivy
+        - image
+        - --format=table
+        - --exit-code=1
+        - --severity=HIGH,CRITICAL
+        - nginx:1.21.6-alpine
+      restartPolicy: Never
+```
+
+11. Run image scan:
+
+```bash
+# Apply scanner job
+kubectl apply -f image-scanner.yaml
+
+# Check scan results
+kubectl logs job/image-scanner -n secure-app
+```
+
+12. Create security monitoring:
+
+```yaml
+# security-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: secure-app-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: secure-app
+  endpoints:
+  - port: http
+    interval: 30s
+    path: /metrics
+```
+
+13. Test security measures:
+
+```bash
+# Test network connectivity
+kubectl run test-pod --image=busybox --rm -it --restart=Never -n secure-app -- wget -O- http://secure-app-service
+
+# Test RBAC
+kubectl run test-pod --image=busybox --rm -it --restart=Never -n secure-app -- sh
+# Inside pod, try to access Kubernetes API
+
+# Check security context
+kubectl exec -it deployment/secure-app -n secure-app -- id
+kubectl exec -it deployment/secure-app -n secure-app -- ls -la /
+```
+
+14. Cleanup:
+
+```bash
+# Delete all resources
+kubectl delete namespace secure-app
+kubectl delete -f rbac-config.yaml
+kubectl delete -f network-policies.yaml
+kubectl delete -f image-scanner.yaml
+```
+
+This comprehensive guide covers all security aspects in Kubernetes, from basic RBAC to advanced security policies, with practical examples and complete security implementations demonstrating secure application deployment and access control.
+

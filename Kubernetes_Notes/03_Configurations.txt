@@ -1,0 +1,553 @@
+📘 Module 3: Configurations
+
+🔹 Topics:
+- ConfigMaps and Secrets
+- Environment Variables in Pods
+- Resource Limits and Requests
+
+📒 Notes:
+- ConfigMap: Inject configuration data
+- Secret: Store sensitive data (base64 encoded)
+- Resource limits prevent pods from overusing resources
+
+🧪 Practice Project:
+- Deploy a Python Flask app configured using ConfigMap and Secret
+
+📖 Detailed Answers:
+
+🔹 ConfigMaps and Secrets
+
+**ConfigMaps:**
+ConfigMaps allow you to decouple configuration artifacts from image content to keep containerized applications portable. They store non-confidential configuration data in key-value pairs.
+
+Key features:
+- Store configuration data separately from application code
+- Can be consumed as environment variables, command-line arguments, or files
+- Support for different data formats (key-value pairs, files, directories)
+- Can be updated without rebuilding container images
+
+Creating ConfigMaps:
+
+1. **From literal values:**
+```bash
+kubectl create configmap app-config --from-literal=DB_HOST=postgres --from-literal=DB_PORT=5432
+```
+
+2. **From files:**
+```bash
+# Create config from file
+kubectl create configmap app-config --from-file=config.properties
+
+# Create config from multiple files
+kubectl create configmap app-config --from-file=config1.properties --from-file=config2.properties
+```
+
+3. **From YAML definition:**
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:
+  DB_HOST: "postgres"
+  DB_PORT: "5432"
+  LOG_LEVEL: "INFO"
+  config.properties: |
+    server.port=8080
+    server.host=0.0.0.0
+    app.name=myapp
+```
+
+Using ConfigMaps in Pods:
+
+1. **As environment variables:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    env:
+    - name: DB_HOST
+      valueFrom:
+        configMapKeyRef:
+          name: app-config
+          key: DB_HOST
+    - name: DB_PORT
+      valueFrom:
+        configMapKeyRef:
+          name: app-config
+          key: DB_PORT
+```
+
+2. **As environment variables from all keys:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    envFrom:
+    - configMapRef:
+        name: app-config
+```
+
+3. **As volume mount:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    volumeMounts:
+    - name: config-volume
+      mountPath: /etc/config
+  volumes:
+  - name: config-volume
+    configMap:
+      name: app-config
+```
+
+**Secrets:**
+Secrets are used to store and manage sensitive information such as passwords, OAuth tokens, and SSH keys. They're base64 encoded and can be consumed by pods.
+
+Key features:
+- Store sensitive data securely
+- Base64 encoded (not encrypted by default)
+- Can be consumed as environment variables or files
+- Support for different types (generic, TLS, docker-registry)
+
+Creating Secrets:
+
+1. **From literal values:**
+```bash
+kubectl create secret generic db-secret --from-literal=username=admin --from-literal=password=secret123
+```
+
+2. **From files:**
+```bash
+# Create secret from file
+kubectl create secret generic db-secret --from-file=username.txt --from-file=password.txt
+
+# Create TLS secret
+kubectl create secret tls tls-secret --cert=cert.pem --key=key.pem
+```
+
+3. **From YAML definition:**
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-secret
+type: Opaque
+data:
+  username: YWRtaW4=  # base64 encoded "admin"
+  password: c2VjcmV0MTIz  # base64 encoded "secret123"
+```
+
+Using Secrets in Pods:
+
+1. **As environment variables:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    env:
+    - name: DB_USERNAME
+      valueFrom:
+        secretKeyRef:
+          name: db-secret
+          key: username
+    - name: DB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: db-secret
+          key: password
+```
+
+2. **As volume mount:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    volumeMounts:
+    - name: secret-volume
+      mountPath: /etc/secrets
+      readOnly: true
+  volumes:
+  - name: secret-volume
+    secret:
+      secretName: db-secret
+```
+
+🔹 Environment Variables in Pods
+
+Environment variables can be set in several ways in Kubernetes pods:
+
+1. **Direct values:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    env:
+    - name: NODE_ENV
+      value: "production"
+    - name: PORT
+      value: "8080"
+```
+
+2. **From ConfigMaps:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    env:
+    - name: DB_HOST
+      valueFrom:
+        configMapKeyRef:
+          name: app-config
+          key: DB_HOST
+          optional: true  # Pod will start even if ConfigMap doesn't exist
+```
+
+3. **From Secrets:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    env:
+    - name: API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: api-secret
+          key: api-key
+```
+
+4. **From field references:**
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    env:
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.name
+    - name: POD_NAMESPACE
+      valueFrom:
+        fieldRef:
+          fieldPath: metadata.namespace
+    - name: POD_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.podIP
+```
+
+🔹 Resource Limits and Requests
+
+Resource management is crucial for cluster stability and fair resource allocation.
+
+**Resource Requests:**
+- Minimum amount of resources guaranteed to the pod
+- Used by scheduler to place pods on nodes
+- Pod won't be scheduled if node doesn't have enough resources
+
+**Resource Limits:**
+- Maximum amount of resources a pod can use
+- Pod will be throttled or killed if it exceeds limits
+- Prevents resource starvation
+
+Resource types:
+- **CPU**: Measured in cores (1 = 1 CPU core, 0.5 = half core)
+- **Memory**: Measured in bytes (Mi, Gi, etc.)
+
+Example with resource management:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: resource-pod
+spec:
+  containers:
+  - name: app
+    image: myapp:latest
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "250m"
+      limits:
+        memory: "128Mi"
+        cpu: "500m"
+```
+
+Resource management best practices:
+
+1. **Always set requests and limits:**
+```yaml
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "250m"
+  limits:
+    memory: "128Mi"
+    cpu: "500m"
+```
+
+2. **Use appropriate units:**
+- CPU: `100m` (0.1 core), `1` (1 core), `2.5` (2.5 cores)
+- Memory: `64Mi`, `1Gi`, `512Mi`
+
+3. **Monitor resource usage:**
+```bash
+# Check resource usage
+kubectl top pods
+kubectl top nodes
+
+# Describe pod to see resource allocation
+kubectl describe pod resource-pod
+```
+
+🧪 Practice Project Steps:
+
+1. Create ConfigMaps and Secrets:
+
+```bash
+# Create ConfigMap for application configuration
+kubectl create configmap flask-config \
+  --from-literal=FLASK_ENV=production \
+  --from-literal=FLASK_DEBUG=false \
+  --from-literal=PORT=5000
+
+# Create Secret for database credentials
+kubectl create secret generic db-secret \
+  --from-literal=DB_USERNAME=flaskuser \
+  --from-literal=DB_PASSWORD=flaskpass123 \
+  --from-literal=DB_HOST=postgres
+
+# Create Secret for API keys
+kubectl create secret generic api-secret \
+  --from-literal=API_KEY=sk-1234567890abcdef
+```
+
+2. Create Python Flask application:
+
+```python
+# app.py
+from flask import Flask, jsonify
+import os
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return jsonify({
+        'message': 'Hello from Flask!',
+        'environment': os.getenv('FLASK_ENV', 'development'),
+        'debug': os.getenv('FLASK_DEBUG', 'true'),
+        'db_host': os.getenv('DB_HOST', 'localhost')
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'healthy'})
+
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
+```
+
+3. Create Dockerfile:
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY app.py .
+
+EXPOSE 5000
+
+CMD ["python", "app.py"]
+```
+
+4. Create requirements.txt:
+
+```
+Flask==2.0.1
+```
+
+5. Deploy the application with ConfigMap and Secret:
+
+```yaml
+# flask-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flask-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: flask-app
+  template:
+    metadata:
+      labels:
+        app: flask-app
+    spec:
+      containers:
+      - name: flask-app
+        image: flask-app:latest
+        ports:
+        - containerPort: 5000
+        env:
+        # From ConfigMap
+        - name: FLASK_ENV
+          valueFrom:
+            configMapKeyRef:
+              name: flask-config
+              key: FLASK_ENV
+        - name: FLASK_DEBUG
+          valueFrom:
+            configMapKeyRef:
+              name: flask-config
+              key: FLASK_DEBUG
+        - name: PORT
+          valueFrom:
+            configMapKeyRef:
+              name: flask-config
+              key: PORT
+        # From Secret
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: DB_USERNAME
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: DB_PASSWORD
+        - name: DB_HOST
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: DB_HOST
+        - name: API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-secret
+              key: API_KEY
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-service
+spec:
+  type: NodePort
+  selector:
+    app: flask-app
+  ports:
+  - port: 5000
+    targetPort: 5000
+    nodePort: 30050
+```
+
+6. Deploy and test:
+
+```bash
+# Build and push Docker image
+docker build -t flask-app:latest .
+docker tag flask-app:latest your-registry/flask-app:latest
+docker push your-registry/flask-app:latest
+
+# Apply the deployment
+kubectl apply -f flask-deployment.yaml
+
+# Check deployment status
+kubectl get pods
+kubectl get services
+
+# Test the application
+kubectl port-forward service/flask-service 8080:5000
+
+# In another terminal
+curl http://localhost:8080
+curl http://localhost:8080/health
+```
+
+7. Update configuration:
+
+```bash
+# Update ConfigMap
+kubectl patch configmap flask-config -p '{"data":{"FLASK_DEBUG":"true"}}'
+
+# Update Secret
+kubectl patch secret db-secret -p '{"data":{"DB_PASSWORD":"bmV3cGFzc3dvcmQ="}}'  # base64 encoded
+
+# Restart pods to pick up new configuration
+kubectl rollout restart deployment/flask-app
+```
+
+8. Monitor resource usage:
+
+```bash
+# Check resource usage
+kubectl top pods -l app=flask-app
+
+# Check pod events
+kubectl describe pod -l app=flask-app
+
+# View logs
+kubectl logs -l app=flask-app
+```
+
+This comprehensive guide covers all configuration aspects in Kubernetes, from basic environment variables to advanced resource management, with practical examples and a complete Flask application deployment.

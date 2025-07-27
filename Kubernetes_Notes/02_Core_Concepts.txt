@@ -1,0 +1,340 @@
+📘 Module 2: Core Concepts
+
+🔹 Topics:
+- Pods, ReplicaSets, Deployments
+- Services (ClusterIP, NodePort, LoadBalancer)
+- Namespaces
+- Labels and Selectors
+
+📒 Notes:
+- Pod: Smallest deployable unit
+- Deployment: Manages replica sets for rollout/rollback
+- Service: Exposes pods (ClusterIP, NodePort, LoadBalancer)
+
+🧪 Practice Project:
+- Deploy a basic web app using Deployment and expose with NodePort
+- Create multiple environments using Namespaces
+
+📖 Detailed Answers:
+
+🔹 Pods, ReplicaSets, Deployments
+
+**Pods:**
+Pods are the smallest deployable units in Kubernetes. A pod can contain one or more containers that share the same network namespace and storage volumes.
+
+Key characteristics:
+- Ephemeral: Pods can be created, destroyed, and recreated
+- Shared resources: Containers in a pod share IP address and port space
+- Lifecycle: Pods have a defined lifecycle (Pending, Running, Succeeded, Failed, Unknown)
+
+Example Pod YAML:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod
+  labels:
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest
+    ports:
+    - containerPort: 80
+```
+
+**ReplicaSets:**
+ReplicaSets ensure that a specified number of pod replicas are running at any given time. They provide high availability and scalability.
+
+Key features:
+- Maintains a stable set of replica pods
+- Supports both equality-based and set-based selectors
+- Can be scaled up or down
+
+Example ReplicaSet YAML:
+```yaml
+apiVersion: apps/v1
+kind: ReplicaSet
+metadata:
+  name: nginx-replicaset
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+```
+
+**Deployments:**
+Deployments provide declarative updates for Pods and ReplicaSets. They manage the rollout and rollback of application versions.
+
+Key features:
+- Rolling updates and rollbacks
+- Version control for your application
+- Automatic scaling and self-healing
+- Declarative updates
+
+Example Deployment YAML:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.19
+        ports:
+        - containerPort: 80
+```
+
+🔹 Services (ClusterIP, NodePort, LoadBalancer)
+
+**Services** provide a stable endpoint for accessing pods. They abstract the underlying pod IP addresses and provide load balancing.
+
+**ClusterIP Service:**
+- Default service type
+- Only accessible within the cluster
+- Used for internal communication between services
+
+Example ClusterIP Service:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-service
+spec:
+  type: ClusterIP
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+**NodePort Service:**
+- Exposes the service on each Node's IP at a static port
+- Accessible from outside the cluster
+- Port range: 30000-32767
+
+Example NodePort Service:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-nodeport
+spec:
+  type: NodePort
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080
+```
+
+**LoadBalancer Service:**
+- Exposes the service externally using cloud provider's load balancer
+- Automatically creates NodePort and ClusterIP services
+- Best for production environments
+
+Example LoadBalancer Service:
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-loadbalancer
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+🔹 Namespaces
+
+**Namespaces** provide a mechanism for isolating groups of resources within a single cluster. They're useful for organizing resources and implementing resource quotas.
+
+Key benefits:
+- Resource organization
+- Access control
+- Resource quotas
+- Environment separation (dev, staging, prod)
+
+Default namespaces:
+- `default`: Resources created without specifying a namespace
+- `kube-system`: Kubernetes system components
+- `kube-public`: Publicly accessible resources
+- `kube-node-lease`: Node lease objects
+
+Creating a namespace:
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+```
+
+Using namespaces:
+```bash
+# Create namespace
+kubectl create namespace development
+
+# List namespaces
+kubectl get namespaces
+
+# Create resources in specific namespace
+kubectl apply -f deployment.yaml -n development
+
+# Switch context to namespace
+kubectl config set-context --current --namespace=development
+```
+
+🔹 Labels and Selectors
+
+**Labels** are key-value pairs attached to objects (pods, services, etc.) for identification and organization.
+
+**Selectors** are used to query and filter objects based on their labels.
+
+Label examples:
+```yaml
+metadata:
+  labels:
+    app: nginx
+    environment: production
+    version: v1.0
+    tier: frontend
+```
+
+Label selector types:
+
+1. **Equality-based selectors:**
+```yaml
+selector:
+  matchLabels:
+    app: nginx
+    environment: production
+```
+
+2. **Set-based selectors:**
+```yaml
+selector:
+  matchExpressions:
+  - key: environment
+    operator: In
+    values: [production, staging]
+  - key: app
+    operator: Exists
+```
+
+Using labels and selectors:
+```bash
+# Label a pod
+kubectl label pod nginx-pod environment=production
+
+# Get pods with specific label
+kubectl get pods -l app=nginx
+
+# Get pods with multiple labels
+kubectl get pods -l 'app=nginx,environment=production'
+
+# Remove a label
+kubectl label pod nginx-pod environment-
+```
+
+🧪 Practice Project Steps:
+
+1. Deploy a basic web app using Deployment and expose with NodePort:
+
+```bash
+# Create deployment
+kubectl create deployment nginx-app --image=nginx:latest
+
+# Scale the deployment
+kubectl scale deployment nginx-app --replicas=3
+
+# Expose with NodePort service
+kubectl expose deployment nginx-app --type=NodePort --port=80 --target-port=80
+
+# Check the service
+kubectl get services
+kubectl describe service nginx-app
+```
+
+2. Create multiple environments using Namespaces:
+
+```bash
+# Create namespaces
+kubectl create namespace development
+kubectl create namespace staging
+kubectl create namespace production
+
+# Deploy to development
+kubectl create deployment nginx-dev --image=nginx:latest -n development
+kubectl expose deployment nginx-dev --type=NodePort --port=80 -n development
+
+# Deploy to staging
+kubectl create deployment nginx-staging --image=nginx:1.19 -n staging
+kubectl expose deployment nginx-staging --type=NodePort --port=80 -n staging
+
+# Deploy to production
+kubectl create deployment nginx-prod --image=nginx:1.19 -n production
+kubectl expose deployment nginx-prod --type=LoadBalancer --port=80 -n production
+```
+
+3. Working with labels and selectors:
+
+```bash
+# Add labels to deployments
+kubectl label deployment nginx-dev environment=development -n development
+kubectl label deployment nginx-staging environment=staging -n staging
+kubectl label deployment nginx-prod environment=production -n production
+
+# Query resources across namespaces
+kubectl get pods --all-namespaces -l environment=production
+
+# Update deployment with new image
+kubectl set image deployment/nginx-dev nginx=nginx:1.20 -n development
+
+# Check rollout status
+kubectl rollout status deployment/nginx-dev -n development
+```
+
+4. Useful commands for managing deployments:
+
+```bash
+# View deployment history
+kubectl rollout history deployment/nginx-dev -n development
+
+# Rollback to previous version
+kubectl rollout undo deployment/nginx-dev -n development
+
+# Pause/resume rollout
+kubectl rollout pause deployment/nginx-dev -n development
+kubectl rollout resume deployment/nginx-dev -n development
+
+# Delete resources
+kubectl delete deployment nginx-dev -n development
+kubectl delete service nginx-dev -n development
+kubectl delete namespace development
+```
+
+This comprehensive guide covers all the core Kubernetes concepts with practical examples and hands-on exercises to reinforce your understanding of pods, deployments, services, namespaces, and labels.

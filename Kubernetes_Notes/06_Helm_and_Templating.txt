@@ -1,0 +1,611 @@
+📘 Module 6: Helm & Templating
+
+🔹 Topics:
+- What is Helm?
+- Charts and values.yaml
+- Releasing and upgrading apps
+
+📒 Notes:
+- Helm is the package manager for Kubernetes
+- Charts contain templates to deploy apps easily
+
+🧪 Practice Project:
+- Deploy a WordPress + MySQL Helm chart
+
+📖 Detailed Answers:
+
+🔹 What is Helm?
+
+**Helm** is the package manager for Kubernetes that simplifies the deployment and management of applications. It provides a way to package, configure, and deploy Kubernetes applications using charts.
+
+Key features:
+- **Package Manager**: Like apt for Ubuntu or yum for CentOS, but for Kubernetes
+- **Templating Engine**: Uses Go templates to generate Kubernetes manifests
+- **Release Management**: Tracks deployments as releases with versioning
+- **Repository Support**: Charts can be shared and distributed via repositories
+- **Rollback Capability**: Easy rollback to previous versions
+
+Helm Architecture:
+- **Helm Client**: Command-line tool for users
+- **Tiller** (Helm 2): Server-side component (deprecated in Helm 3)
+- **Charts**: Packages containing Kubernetes resources
+- **Releases**: Instances of charts running in a cluster
+
+Helm 3 vs Helm 2:
+- **Helm 3**: No Tiller, uses Kubernetes RBAC, better security
+- **Helm 2**: Required Tiller server, less secure
+
+Installation:
+```bash
+# Install Helm 3
+curl https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz | tar xz
+sudo mv linux-amd64/helm /usr/local/bin/
+
+# Verify installation
+helm version
+
+# Add official repository
+helm repo add stable https://charts.helm.sh/stable
+helm repo update
+```
+
+🔹 Charts and values.yaml
+
+**Charts** are Helm packages that contain all the necessary resource definitions to run an application, tool, or service inside a Kubernetes cluster.
+
+Chart Structure:
+```
+myapp/
+├── Chart.yaml          # Chart metadata
+├── values.yaml         # Default configuration values
+├── charts/             # Dependencies
+├── templates/          # Template files
+│   ├── deployment.yaml
+│   ├── service.yaml
+│   ├── configmap.yaml
+│   └── _helpers.tpl    # Template helpers
+└── .helmignore         # Files to ignore
+```
+
+**Chart.yaml** - Chart metadata:
+```yaml
+apiVersion: v2
+name: myapp
+description: A Helm chart for My Application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - web
+  - application
+home: https://github.com/user/myapp
+sources:
+  - https://github.com/user/myapp
+maintainers:
+  - name: Your Name
+    email: your.email@example.com
+dependencies:
+  - name: mysql
+    version: 8.8.0
+    repository: https://charts.bitnami.com/bitnami
+```
+
+**values.yaml** - Default configuration:
+```yaml
+# Default values for myapp
+replicaCount: 1
+
+image:
+  repository: nginx
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: ImplementationSpecific
+  tls: []
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+```
+
+Template files use Go templating syntax:
+```yaml
+# templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "myapp.fullname" . }}
+  labels:
+    {{- include "myapp.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "myapp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "myapp.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+```
+
+Template helpers (`_helpers.tpl`):
+```yaml
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "myapp.name" -}}
+{{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a default fully qualified app name.
+*/}}
+{{- define "myapp.fullname" -}}
+{{- if .Values.fullnameOverride }}
+{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- $name := default .Chart.Name .Values.nameOverride }}
+{{- if contains $name .Release.Name }}
+{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- else }}
+{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Common labels
+*/}}
+{{- define "myapp.labels" -}}
+helm.sh/chart: {{ include "myapp.chart" . }}
+{{ include "myapp.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+```
+
+🔹 Releasing and upgrading apps
+
+**Releases** are instances of charts running in a Kubernetes cluster. Each release has a unique name and can be upgraded, rolled back, or deleted.
+
+Basic Helm Commands:
+```bash
+# Install a chart
+helm install my-release ./myapp
+
+# Install from repository
+helm install my-release stable/nginx
+
+# List releases
+helm list
+
+# Get release status
+helm status my-release
+
+# Upgrade a release
+helm upgrade my-release ./myapp
+
+# Rollback to previous version
+helm rollback my-release 1
+
+# Delete a release
+helm uninstall my-release
+
+# Get release history
+helm history my-release
+```
+
+Installing with custom values:
+```bash
+# Install with custom values file
+helm install my-release ./myapp -f custom-values.yaml
+
+# Install with inline values
+helm install my-release ./myapp --set replicaCount=3 --set image.tag=v1.2.3
+
+# Install with multiple value sources
+helm install my-release ./myapp \
+  -f values.yaml \
+  -f production-values.yaml \
+  --set replicaCount=5
+```
+
+Upgrading releases:
+```bash
+# Upgrade with new chart version
+helm upgrade my-release ./myapp
+
+# Upgrade with new values
+helm upgrade my-release ./myapp --set replicaCount=5
+
+# Upgrade with values file
+helm upgrade my-release ./myapp -f new-values.yaml
+
+# Check what would be upgraded (dry run)
+helm upgrade my-release ./myapp --dry-run
+
+# Atomic upgrade (rollback on failure)
+helm upgrade my-release ./myapp --atomic
+```
+
+Release management:
+```bash
+# List all releases
+helm list -a
+
+# Get detailed release info
+helm get all my-release
+
+# Get specific resource
+helm get manifest my-release
+
+# Get values used in release
+helm get values my-release
+
+# Test release (validate templates)
+helm test my-release
+```
+
+🧪 Practice Project Steps:
+
+1. Install Helm and add repositories:
+
+```bash
+# Install Helm 3
+curl https://get.helm.sh/helm-v3.12.0-linux-amd64.tar.gz | tar xz
+sudo mv linux-amd64/helm /usr/local/bin/
+
+# Verify installation
+helm version
+
+# Add Bitnami repository (for WordPress and MySQL)
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm repo update
+
+# List available charts
+helm search repo bitnami
+```
+
+2. Create a custom values file for WordPress:
+
+```yaml
+# wordpress-values.yaml
+wordpress:
+  replicaCount: 2
+  
+  image:
+    registry: docker.io
+    repository: bitnami/wordpress
+    tag: "6.3.2"
+  
+  wordpressUsername: admin
+  wordpressPassword: "admin123"
+  wordpressEmail: admin@example.com
+  wordpressFirstName: Admin
+  wordpressLastName: User
+  wordpressBlogName: "My Blog"
+  
+  service:
+    type: LoadBalancer
+    port: 80
+  
+  ingress:
+    enabled: true
+    hostname: wordpress.local
+    annotations:
+      nginx.ingress.kubernetes.io/rewrite-target: /
+  
+  resources:
+    limits:
+      cpu: 300m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+
+mysql:
+  enabled: true
+  auth:
+    rootPassword: "rootpassword"
+    database: "wordpress"
+    username: "wordpress"
+    password: "wordpress123"
+  
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClass: ""
+  
+  resources:
+    limits:
+      cpu: 300m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+```
+
+3. Deploy WordPress with MySQL:
+
+```bash
+# Install WordPress chart
+helm install my-wordpress bitnami/wordpress \
+  -f wordpress-values.yaml \
+  --namespace wordpress \
+  --create-namespace
+
+# Check deployment status
+helm status my-wordpress -n wordpress
+
+# List all resources
+kubectl get all -n wordpress
+```
+
+4. Monitor the deployment:
+
+```bash
+# Watch pods starting
+kubectl get pods -n wordpress -w
+
+# Check services
+kubectl get services -n wordpress
+
+# Check ingress
+kubectl get ingress -n wordpress
+
+# Get WordPress URL and credentials
+helm get notes my-wordpress -n wordpress
+```
+
+5. Access WordPress:
+
+```bash
+# Port forward to WordPress
+kubectl port-forward svc/my-wordpress 8080:80 -n wordpress
+
+# Or get LoadBalancer IP
+kubectl get svc my-wordpress -n wordpress
+
+# Access WordPress at http://localhost:8080
+# Username: admin
+# Password: admin123
+```
+
+6. Upgrade the release:
+
+```yaml
+# wordpress-upgrade-values.yaml
+wordpress:
+  replicaCount: 3
+  image:
+    tag: "6.4.0"
+  
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+mysql:
+  primary:
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 256Mi
+```
+
+```bash
+# Upgrade the release
+helm upgrade my-wordpress bitnami/wordpress \
+  -f wordpress-upgrade-values.yaml \
+  -n wordpress
+
+# Check upgrade status
+helm status my-wordpress -n wordpress
+
+# View upgrade history
+helm history my-wordpress -n wordpress
+```
+
+7. Create a custom chart:
+
+```bash
+# Create a new chart
+helm create myapp
+
+# Structure created:
+# myapp/
+# ├── Chart.yaml
+# ├── values.yaml
+# ├── charts/
+# ├── templates/
+# └── .helmignore
+```
+
+8. Customize the chart:
+
+```yaml
+# myapp/values.yaml
+replicaCount: 2
+
+image:
+  repository: nginx
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: myapp.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+```
+
+9. Deploy custom chart:
+
+```bash
+# Install custom chart
+helm install myapp ./myapp \
+  --set replicaCount=3 \
+  --set image.tag=1.19 \
+  --namespace myapp \
+  --create-namespace
+
+# Check deployment
+helm list -n myapp
+kubectl get all -n myapp
+```
+
+10. Advanced Helm operations:
+
+```bash
+# Package a chart
+helm package ./myapp
+
+# Install from package
+helm install myapp myapp-0.1.0.tgz
+
+# Dependency management
+helm dependency update ./myapp
+helm dependency build ./myapp
+
+# Lint chart
+helm lint ./myapp
+
+# Template rendering (dry run)
+helm template myapp ./myapp
+
+# Debug template rendering
+helm template myapp ./myapp --debug
+
+# Get release values
+helm get values myapp -n myapp
+
+# Set values
+helm upgrade myapp ./myapp --set replicaCount=5 -n myapp
+
+# Rollback
+helm rollback myapp 1 -n myapp
+```
+
+11. Cleanup:
+
+```bash
+# Uninstall releases
+helm uninstall my-wordpress -n wordpress
+helm uninstall myapp -n myapp
+
+# Delete namespaces
+kubectl delete namespace wordpress
+kubectl delete namespace myapp
+
+# Remove repositories
+helm repo remove bitnami
+```
+
+This comprehensive guide covers all Helm and templating aspects in Kubernetes, from basic chart structure to advanced release management, with practical examples and a complete WordPress + MySQL deployment demonstrating Helm's capabilities for package management and templating.

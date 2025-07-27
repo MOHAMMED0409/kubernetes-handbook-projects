@@ -1,0 +1,893 @@
+📘 Module 7: Observability & Monitoring
+
+🔹 Topics:
+- Logging
+- Metrics Server
+- Prometheus + Grafana
+- Liveness and Readiness Probes
+
+📒 Notes:
+- Probes help with self-healing
+- Prometheus scrapes metrics, Grafana visualizes
+
+🧪 Practice Project:
+- Set up Prometheus and Grafana
+- Add probes to an app
+
+📖 Detailed Answers:
+
+🔹 Logging
+
+**Logging** in Kubernetes is essential for debugging, monitoring, and understanding application behavior. Kubernetes provides several ways to collect and manage logs from containers.
+
+Key concepts:
+- **Container logs**: Standard output and error streams
+- **Log aggregation**: Centralized log collection
+- **Log retention**: Storage and cleanup policies
+- **Structured logging**: JSON-formatted logs for better parsing
+
+Basic Log Commands:
+```bash
+# View logs from a pod
+kubectl logs <pod-name>
+
+# Follow logs in real-time
+kubectl logs -f <pod-name>
+
+# View logs from previous container instance
+kubectl logs <pod-name> --previous
+
+# View logs from specific container in multi-container pod
+kubectl logs <pod-name> -c <container-name>
+
+# View logs with timestamps
+kubectl logs <pod-name> --timestamps
+
+# View logs from last N lines
+kubectl logs <pod-name> --tail=100
+
+# View logs from specific time
+kubectl logs <pod-name> --since=1h
+```
+
+Logging from multiple pods:
+```bash
+# View logs from all pods with specific label
+kubectl logs -l app=myapp
+
+# View logs from deployment
+kubectl logs deployment/myapp
+
+# View logs from service (random pod)
+kubectl logs service/myapp
+```
+
+Structured Logging Example:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: logging-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+    command: ["/bin/sh"]
+    args:
+    - -c
+    - |
+      while true; do
+        echo '{"timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","level":"INFO","message":"Application is running","service":"myapp","version":"1.0.0"}' | jq .
+        sleep 30
+      done
+```
+
+Log Aggregation with Fluentd:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type json
+        time_format %Y-%m-%dT%H:%M:%S.%NZ
+      </parse>
+    </source>
+
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+    </filter>
+
+    <match kubernetes.**>
+      @type elasticsearch
+      host elasticsearch-master
+      port 9200
+      logstash_format true
+      logstash_prefix k8s
+    </match>
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd
+spec:
+  selector:
+    matchLabels:
+      name: fluentd
+  template:
+    metadata:
+      labels:
+        name: fluentd
+    spec:
+      serviceAccount: fluentd
+      containers:
+      - name: fluentd
+        image: fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+        - name: config
+          mountPath: /fluentd/etc
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+      - name: config
+        configMap:
+          name: fluentd-config
+```
+
+🔹 Metrics Server
+
+**Metrics Server** is a cluster-wide aggregator of resource usage data. It collects metrics from kubelets and exposes them via the Kubernetes API server.
+
+Key features:
+- **Resource metrics**: CPU and memory usage
+- **Real-time data**: Current resource consumption
+- **API integration**: Metrics available via kubectl
+- **Horizontal Pod Autoscaler support**: Enables HPA functionality
+
+Installation:
+```bash
+# Install Metrics Server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# Verify installation
+kubectl get pods -n kube-system | grep metrics-server
+
+# Check if metrics are available
+kubectl top nodes
+kubectl top pods
+```
+
+Using Metrics Server:
+```bash
+# View node resource usage
+kubectl top nodes
+
+# View pod resource usage
+kubectl top pods
+
+# View pod resource usage in specific namespace
+kubectl top pods -n default
+
+# View pod resource usage with labels
+kubectl top pods -l app=myapp
+
+# View resource usage for deployments
+kubectl top pods --selector=app.kubernetes.io/name=myapp
+```
+
+Resource monitoring with custom metrics:
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: myapp-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: myapp
+  minReplicas: 1
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+```
+
+🔹 Prometheus + Grafana
+
+**Prometheus** is a monitoring and alerting toolkit, while **Grafana** is a visualization and analytics platform. Together they provide comprehensive monitoring for Kubernetes clusters.
+
+Prometheus Features:
+- **Time-series database**: Stores metrics with timestamps
+- **Pull-based scraping**: Collects metrics from targets
+- **PromQL**: Powerful query language
+- **Alerting**: Configurable alert rules
+- **Service discovery**: Automatic target discovery
+
+Grafana Features:
+- **Dashboard creation**: Visual metric representation
+- **Multiple data sources**: Prometheus, Elasticsearch, etc.
+- **Alerting**: Visual and notification alerts
+- **User management**: Role-based access control
+
+Prometheus Installation (using Helm):
+```bash
+# Add Prometheus repository
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# Install Prometheus
+helm install prometheus prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
+```
+
+Prometheus Configuration:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    rule_files:
+      - "first_rules.yml"
+      - "second_rules.yml"
+
+    scrape_configs:
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+```
+
+ServiceMonitor for application metrics:
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: myapp-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: myapp
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+```
+
+Grafana Dashboard Configuration:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+data:
+  kubernetes-cluster.json: |
+    {
+      "dashboard": {
+        "title": "Kubernetes Cluster",
+        "panels": [
+          {
+            "title": "CPU Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(rate(container_cpu_usage_seconds_total{container!=\"\"}[5m])) by (pod)",
+                "legendFormat": "{{pod}}"
+              }
+            ]
+          },
+          {
+            "title": "Memory Usage",
+            "type": "graph",
+            "targets": [
+              {
+                "expr": "sum(container_memory_usage_bytes{container!=\"\"}) by (pod)",
+                "legendFormat": "{{pod}}"
+              }
+            ]
+          }
+        ]
+      }
+    }
+```
+
+🔹 Liveness and Readiness Probes
+
+**Probes** are diagnostic checks performed by kubelet to determine the health of a container. They help Kubernetes make decisions about pod lifecycle and traffic routing.
+
+**Liveness Probe:**
+- Determines if the container is running properly
+- If it fails, the container is restarted
+- Used for detecting deadlocks, infinite loops, or stuck states
+
+**Readiness Probe:**
+- Determines if the container is ready to serve traffic
+- If it fails, the pod is removed from service endpoints
+- Used for startup dependencies, temporary unavailability
+
+**Startup Probe:**
+- Disables other probes until it succeeds
+- Used for slow-starting containers
+- Prevents premature probe failures during startup
+
+Probe Types:
+1. **HTTP GET**: HTTP request to a specified endpoint
+2. **TCP Socket**: TCP connection to a specified port
+3. **Exec**: Execution of a command inside the container
+
+Liveness Probe Example:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-probes
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: app
+        image: myapp:latest
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /startup
+            port: 8080
+          failureThreshold: 30
+          periodSeconds: 10
+```
+
+TCP Socket Probe:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: database-with-probes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: database
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      containers:
+      - name: database
+        image: mysql:8.0
+        ports:
+        - containerPort: 3306
+        livenessProbe:
+          tcpSocket:
+            port: 3306
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - mysqladmin
+            - ping
+            - -h
+            - localhost
+          initialDelaySeconds: 5
+          periodSeconds: 2
+```
+
+Exec Probe Example:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-exec-probe
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: app
+        image: myapp:latest
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - pgrep -f myapp || exit 1
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - curl -f http://localhost:8080/ready || exit 1
+          initialDelaySeconds: 5
+          periodSeconds: 5
+```
+
+🧪 Practice Project Steps:
+
+1. Install Metrics Server:
+
+```bash
+# Install Metrics Server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+
+# Wait for installation
+kubectl wait --for=condition=ready pod -l k8s-app=metrics-server -n kube-system
+
+# Verify installation
+kubectl top nodes
+kubectl top pods
+```
+
+2. Install Prometheus and Grafana:
+
+```bash
+# Add Helm repositories
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+# Install Prometheus stack
+helm install monitoring prometheus-community/kube-prometheus-stack \
+  --namespace monitoring \
+  --create-namespace \
+  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
+  --set grafana.enabled=true \
+  --set grafana.adminPassword=admin123
+
+# Wait for installation
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=grafana -n monitoring
+```
+
+3. Create application with probes:
+
+```yaml
+# app-with-probes.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: app
+        image: nginx
+        ports:
+        - containerPort: 80
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          timeoutSeconds: 3
+          failureThreshold: 3
+        startupProbe:
+          httpGet:
+            path: /startup
+            port: 80
+          failureThreshold: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-service
+spec:
+  selector:
+    app: sample-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  - name: metrics
+    port: 8080
+    targetPort: 8080
+```
+
+4. Deploy the application:
+
+```bash
+# Apply the deployment
+kubectl apply -f app-with-probes.yaml
+
+# Check deployment status
+kubectl get pods -l app=sample-app
+
+# Check probe status
+kubectl describe pod -l app=sample-app
+```
+
+5. Create ServiceMonitor for Prometheus:
+
+```yaml
+# servicemonitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-app-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: sample-app
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+```
+
+```bash
+# Apply ServiceMonitor
+kubectl apply -f servicemonitor.yaml
+```
+
+6. Access Grafana:
+
+```bash
+# Port forward to Grafana
+kubectl port-forward svc/monitoring-grafana 3000:80 -n monitoring
+
+# Access Grafana at http://localhost:3000
+# Username: admin
+# Password: admin123
+```
+
+7. Create custom application with metrics:
+
+```python
+# app.py
+from flask import Flask, jsonify
+import time
+import psutil
+import threading
+
+app = Flask(__name__)
+
+# Simulate application state
+app_ready = False
+app_started = False
+
+def startup_task():
+    global app_started
+    time.sleep(10)  # Simulate startup time
+    app_started = True
+
+def readiness_task():
+    global app_ready
+    time.sleep(5)  # Simulate readiness time
+    app_ready = True
+
+# Start background tasks
+threading.Thread(target=startup_task, daemon=True).start()
+threading.Thread(target=readiness_task, daemon=True).start()
+
+@app.route('/')
+def home():
+    return jsonify({"message": "Hello from Flask App!"})
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+@app.route('/ready')
+def ready():
+    if app_ready:
+        return jsonify({"status": "ready"}), 200
+    else:
+        return jsonify({"status": "not ready"}), 503
+
+@app.route('/startup')
+def startup():
+    if app_started:
+        return jsonify({"status": "started"}), 200
+    else:
+        return jsonify({"status": "starting"}), 503
+
+@app.route('/metrics')
+def metrics():
+    cpu_percent = psutil.cpu_percent()
+    memory = psutil.virtual_memory()
+    
+    metrics_data = f"""
+# HELP app_cpu_usage CPU usage percentage
+# TYPE app_cpu_usage gauge
+app_cpu_usage {cpu_percent}
+
+# HELP app_memory_usage Memory usage in bytes
+# TYPE app_memory_usage gauge
+app_memory_usage {memory.used}
+
+# HELP app_memory_total Total memory in bytes
+# TYPE app_memory_total gauge
+app_memory_total {memory.total}
+
+# HELP app_requests_total Total number of requests
+# TYPE app_requests_total counter
+app_requests_total {time.time()}
+"""
+    return metrics_data
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
+```
+
+8. Create Dockerfile for the app:
+
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+
+RUN pip install flask psutil
+
+COPY app.py .
+
+EXPOSE 8080
+
+CMD ["python", "app.py"]
+```
+
+9. Deploy custom application:
+
+```yaml
+# custom-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: custom-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: custom-app
+  template:
+    metadata:
+      labels:
+        app: custom-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: app
+        image: custom-app:latest
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        startupProbe:
+          httpGet:
+            path: /startup
+            port: 8080
+          failureThreshold: 30
+          periodSeconds: 10
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: custom-app-service
+spec:
+  selector:
+    app: custom-app
+  ports:
+  - port: 8080
+    targetPort: 8080
+```
+
+10. Monitor the application:
+
+```bash
+# Build and deploy custom app
+docker build -t custom-app:latest .
+kubectl apply -f custom-app.yaml
+
+# Check probe status
+kubectl describe pod -l app=custom-app
+
+# View logs
+kubectl logs -l app=custom-app
+
+# Check metrics
+kubectl top pods -l app=custom-app
+
+# Test probes manually
+kubectl port-forward svc/custom-app-service 8080:8080
+curl http://localhost:8080/health
+curl http://localhost:8080/ready
+curl http://localhost:8080/metrics
+```
+
+11. Create Grafana dashboard:
+
+```bash
+# Access Grafana and create dashboard
+# Add Prometheus as data source: http://monitoring-kube-prometheus-prometheus:9090
+# Create dashboard with queries:
+# - CPU Usage: app_cpu_usage
+# - Memory Usage: app_memory_usage
+# - Request Rate: rate(app_requests_total[5m])
+```
+
+12. Set up alerts:
+
+```yaml
+# prometheus-rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: app-alerts
+  namespace: monitoring
+spec:
+  groups:
+  - name: app.rules
+    rules:
+    - alert: HighCPUUsage
+      expr: app_cpu_usage > 80
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High CPU usage detected"
+        description: "CPU usage is above 80% for 5 minutes"
+    
+    - alert: HighMemoryUsage
+      expr: app_memory_usage / app_memory_total > 0.8
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "High memory usage detected"
+        description: "Memory usage is above 80% for 5 minutes"
+```
+
+13. Cleanup:
+
+```bash
+# Uninstall monitoring stack
+helm uninstall monitoring -n monitoring
+
+# Delete custom resources
+kubectl delete -f app-with-probes.yaml
+kubectl delete -f custom-app.yaml
+kubectl delete -f servicemonitor.yaml
+kubectl delete -f prometheus-rules.yaml
+
+# Delete namespaces
+kubectl delete namespace monitoring
+```
+
+This comprehensive guide covers all observability and monitoring aspects in Kubernetes, from basic logging to advanced monitoring with Prometheus and Grafana, with practical examples and complete application deployments demonstrating health checks, metrics collection, and visualization.

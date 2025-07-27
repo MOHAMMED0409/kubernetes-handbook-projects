@@ -1,0 +1,694 @@
+📘 Module 5: Advanced Networking
+
+🔹 Topics:
+- DNS in Kubernetes
+- Ingress Controllers
+- Network Policies
+
+📒 Notes:
+- Ingress manages external access to services
+- Network Policies secure pod communication
+
+🧪 Practice Project:
+- Use NGINX Ingress to route traffic to different services
+
+📖 Detailed Answers:
+
+🔹 DNS in Kubernetes
+
+**DNS in Kubernetes** provides automatic service discovery within the cluster. Every service gets a DNS name that can be used by pods to communicate with each other.
+
+Key features:
+- Automatic DNS resolution for services
+- Pod DNS resolution (optional)
+- Custom DNS configuration
+- Service discovery without hardcoded IPs
+
+DNS Naming Convention:
+- **Service DNS**: `<service-name>.<namespace>.svc.cluster.local`
+- **Pod DNS**: `<pod-ip>.<namespace>.pod.cluster.local`
+- **Short names**: `<service-name>` (same namespace) or `<service-name>.<namespace>`
+
+CoreDNS Configuration:
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns
+  namespace: kube-system
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+```
+
+Service DNS Examples:
+```bash
+# Service in same namespace
+curl http://web-service/api/data
+
+# Service in different namespace
+curl http://web-service.default/api/data
+
+# Full DNS name
+curl http://web-service.default.svc.cluster.local/api/data
+```
+
+Custom DNS Configuration:
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: dns-pod
+spec:
+  containers:
+  - name: app
+    image: nginx
+  dnsPolicy: ClusterFirst
+  dnsConfig:
+    nameservers:
+      - 8.8.8.8
+      - 8.8.4.4
+    searches:
+      - default.svc.cluster.local
+      - svc.cluster.local
+      - cluster.local
+    options:
+      - name: ndots
+        value: "2"
+```
+
+DNS Policies:
+- **ClusterFirst**: Use cluster DNS, fallback to upstream DNS
+- **ClusterFirstWithHostNet**: Use cluster DNS for host network pods
+- **Default**: Use node's DNS configuration
+- **None**: No DNS configuration (use dnsConfig)
+
+🔹 Ingress Controllers
+
+**Ingress Controllers** provide HTTP/HTTPS routing to services based on hostnames, paths, and other HTTP attributes. They act as a reverse proxy and load balancer.
+
+Key features:
+- HTTP/HTTPS routing based on hostnames and paths
+- SSL/TLS termination
+- Load balancing
+- Name-based virtual hosting
+- Path-based routing
+
+Popular Ingress Controllers:
+- **NGINX Ingress Controller**
+- **Traefik**
+- **HAProxy**
+- **Istio Gateway**
+- **AWS ALB Ingress Controller**
+
+NGINX Ingress Controller Installation:
+```bash
+# Install NGINX Ingress Controller
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+
+# Check installation
+kubectl get pods -n ingress-nginx
+kubectl get services -n ingress-nginx
+```
+
+Basic Ingress Example:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: basic-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+```
+
+Path-based Routing:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: path-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /api/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+      - path: /web/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: default-service
+            port:
+              number: 80
+```
+
+Name-based Virtual Hosting:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: name-based-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+  - host: web.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+```
+
+SSL/TLS Termination:
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tls-secret
+type: kubernetes.io/tls
+data:
+  tls.crt: <base64-encoded-certificate>
+  tls.key: <base64-encoded-private-key>
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-ingress
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - myapp.example.com
+    secretName: tls-secret
+  rules:
+  - host: myapp.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+```
+
+🔹 Network Policies
+
+**Network Policies** allow you to control traffic flow between pods and namespaces. They act as a firewall for your cluster, defining which pods can communicate with each other.
+
+Key features:
+- Pod-to-pod communication control
+- Namespace isolation
+- Protocol and port filtering
+- Label-based selection
+- Ingress and egress rules
+
+Network Policy Components:
+- **Pod Selectors**: Define which pods the policy applies to
+- **Ingress Rules**: Control incoming traffic
+- **Egress Rules**: Control outgoing traffic
+- **Policy Types**: Ingress, Egress, or both
+
+Default Deny All Policy:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+```
+
+Allow All Traffic:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - {}
+  egress:
+  - {}
+```
+
+Namespace Isolation:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: namespace-isolation
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: frontend
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: backend
+```
+
+Application-specific Policy:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: frontend
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: database
+    ports:
+    - protocol: TCP
+      port: 3306
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+```
+
+Database Access Control:
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: database
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: api
+    ports:
+    - protocol: TCP
+      port: 3306
+```
+
+🧪 Practice Project Steps:
+
+1. Install NGINX Ingress Controller:
+
+```bash
+# Install NGINX Ingress Controller
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+
+# Wait for installation
+kubectl wait --namespace ingress-nginx \
+  --for=condition=ready pod \
+  --selector=app.kubernetes.io/component=controller \
+  --timeout=120s
+
+# Check installation
+kubectl get pods -n ingress-nginx
+kubectl get services -n ingress-nginx
+```
+
+2. Create sample applications:
+
+```yaml
+# web-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: web
+        image: nginx
+        ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-service
+spec:
+  selector:
+    app: web
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+```yaml
+# api-app.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: nginx
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+spec:
+  selector:
+    app: api
+  ports:
+  - port: 8080
+    targetPort: 8080
+```
+
+3. Create Ingress for routing:
+
+```yaml
+# ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$1
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.local
+    http:
+      paths:
+      - path: /api/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+      - path: /web/(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+```
+
+4. Deploy applications:
+
+```bash
+# Apply deployments
+kubectl apply -f web-app.yaml
+kubectl apply -f api-app.yaml
+kubectl apply -f ingress.yaml
+
+# Check resources
+kubectl get pods
+kubectl get services
+kubectl get ingress
+```
+
+5. Test DNS resolution:
+
+```bash
+# Create a test pod
+kubectl run test-pod --image=busybox --rm -it --restart=Never -- sh
+
+# Test DNS resolution
+nslookup web-service
+nslookup api-service
+nslookup web-service.default.svc.cluster.local
+
+# Test service connectivity
+wget -qO- http://web-service
+wget -qO- http://api-service:8080
+```
+
+6. Test Ingress routing:
+
+```bash
+# Get Ingress IP
+kubectl get ingress app-ingress
+
+# Add hostname to /etc/hosts (replace with actual IP)
+echo "192.168.49.2 myapp.local" | sudo tee -a /etc/hosts
+
+# Test routing
+curl http://myapp.local/
+curl http://myapp.local/web/
+curl http://myapp.local/api/
+```
+
+7. Create Network Policies:
+
+```yaml
+# network-policy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: web-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 80
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: api
+    ports:
+    - protocol: TCP
+      port: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: api
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: web
+    ports:
+    - protocol: TCP
+      port: 8080
+  egress:
+  - to: []
+```
+
+8. Apply Network Policies:
+
+```bash
+# Apply network policies
+kubectl apply -f network-policy.yaml
+
+# Check policies
+kubectl get networkpolicies
+
+# Test connectivity
+kubectl run test-pod --image=busybox --rm -it --restart=Never -- sh
+wget -qO- http://web-service
+wget -qO- http://api-service:8080
+```
+
+9. Advanced Ingress features:
+
+```yaml
+# advanced-ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: advanced-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/proxy-body-size: "8m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.myapp.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+  - host: web.myapp.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+```
+
+10. Monitor and troubleshoot:
+
+```bash
+# Check Ingress Controller logs
+kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller
+
+# Check Ingress status
+kubectl describe ingress app-ingress
+
+# Test network policies
+kubectl run test-pod --image=busybox --rm -it --restart=Never -- sh
+# Try to access services and observe behavior
+
+# Check DNS resolution
+kubectl run dns-test --image=busybox --rm -it --restart=Never -- nslookup web-service
+```
+
+11. Cleanup:
+
+```bash
+# Delete all resources
+kubectl delete -f web-app.yaml
+kubectl delete -f api-app.yaml
+kubectl delete -f ingress.yaml
+kubectl delete -f network-policy.yaml
+kubectl delete -f advanced-ingress.yaml
+
+# Uninstall NGINX Ingress Controller
+kubectl delete -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/cloud/deploy.yaml
+```
+
+This comprehensive guide covers all advanced networking aspects in Kubernetes, from DNS resolution to Ingress controllers and Network Policies, with practical examples and a complete multi-service application deployment demonstrating traffic routing and network security.

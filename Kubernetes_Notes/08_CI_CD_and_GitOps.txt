@@ -1,0 +1,916 @@
+📘 Module 8: CI/CD and GitOps
+
+🔹 Topics:
+- GitOps with ArgoCD or Flux
+- CI/CD using GitHub Actions or Jenkins
+- Kubernetes Rolling Updates & Rollbacks
+
+📒 Notes:
+- GitOps automates deployments via Git
+- CI/CD integrates code changes & deployments
+
+🧪 Practice Project:
+- Deploy app with GitHub Actions to a Minikube cluster
+
+📖 Detailed Answers:
+
+🔹 GitOps with ArgoCD or Flux
+
+**GitOps** is a practice where Git is the single source of truth for declarative infrastructure and applications. The desired state is stored in Git, and an automated process ensures the cluster matches that state.
+
+Key principles:
+- **Declarative**: Infrastructure is described as code
+- **Version controlled**: All changes are tracked in Git
+- **Automated**: Changes are applied automatically
+- **Observable**: Current state is always visible
+- **Secure**: Git provides audit trail and access control
+
+**ArgoCD** is a declarative GitOps continuous delivery tool for Kubernetes.
+
+ArgoCD Installation:
+```bash
+# Install ArgoCD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Wait for installation
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd
+
+# Get admin password
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+ArgoCD Application Example:
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/user/myapp-manifests
+    targetRevision: HEAD
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: myapp
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+  revisionHistoryLimit: 10
+```
+
+ArgoCD CLI Usage:
+```bash
+# Login to ArgoCD
+argocd login localhost:8080 --username admin --password <password>
+
+# Create application
+argocd app create myapp \
+  --repo https://github.com/user/myapp-manifests \
+  --path k8s \
+  --dest-server https://kubernetes.default.svc \
+  --dest-namespace myapp
+
+# Sync application
+argocd app sync myapp
+
+# Get application status
+argocd app get myapp
+
+# List applications
+argocd app list
+
+# Delete application
+argocd app delete myapp
+```
+
+**Flux** is a GitOps operator that keeps your clusters in sync with sources of configuration.
+
+Flux Installation:
+```bash
+# Install Flux CLI
+curl -s https://fluxcd.io/install.sh | sudo bash
+
+# Bootstrap Flux
+flux bootstrap github \
+  --owner=user \
+  --repository=myapp-manifests \
+  --branch=main \
+  --path=./clusters/my-cluster \
+  --personal
+
+# Check Flux status
+flux check
+```
+
+Flux GitRepository and Kustomization:
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1beta2
+kind: GitRepository
+metadata:
+  name: myapp
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/user/myapp-manifests
+  ref:
+    branch: main
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
+kind: Kustomization
+metadata:
+  name: myapp
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./k8s
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: myapp
+  targetNamespace: myapp
+  validation: client
+```
+
+Flux CLI Commands:
+```bash
+# Create GitRepository
+flux create source git myapp \
+  --url=https://github.com/user/myapp-manifests \
+  --branch=main \
+  --interval=1m
+
+# Create Kustomization
+flux create kustomization myapp \
+  --source=myapp \
+  --path="./k8s" \
+  --prune=true \
+  --interval=10m
+
+# Reconcile resources
+flux reconcile kustomization myapp
+
+# Get status
+flux get kustomizations
+flux get sources git
+```
+
+🔹 CI/CD using GitHub Actions or Jenkins
+
+**CI/CD** (Continuous Integration/Continuous Deployment) automates the process of building, testing, and deploying applications.
+
+**GitHub Actions** is a CI/CD platform integrated with GitHub.
+
+GitHub Actions Workflow Example:
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run tests
+      run: |
+        python -m pytest tests/
+    
+    - name: Run linting
+      run: |
+        pip install flake8
+        flake8 .
+
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure kubectl
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+    
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl set image deployment/myapp myapp=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        kubectl rollout status deployment/myapp
+```
+
+GitHub Actions with ArgoCD:
+```yaml
+# .github/workflows/gitops-deploy.yml
+name: GitOps Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+    
+    - name: Update image tag
+      run: |
+        sed -i "s|image: .*|image: ghcr.io/${{ github.repository }}:${{ github.sha }}|g" k8s/deployment.yaml
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add k8s/deployment.yaml
+        git commit -m "Update image to ${{ github.sha }}"
+        git push
+```
+
+**Jenkins** is a self-hosted CI/CD server.
+
+Jenkins Pipeline Example:
+```groovy
+// Jenkinsfile
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_IMAGE = 'myapp'
+        DOCKER_TAG = "${env.BUILD_NUMBER}"
+        KUBECONFIG = credentials('kubeconfig')
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh 'python -m pip install -r requirements.txt'
+                sh 'python -m pytest tests/'
+                sh 'flake8 .'
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                script {
+                    docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                }
+            }
+        }
+        
+        stage('Push') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.example.com', 'registry-credentials') {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy') {
+            steps {
+                sh 'kubectl set image deployment/myapp myapp=registry.example.com/myapp:${DOCKER_TAG}'
+                sh 'kubectl rollout status deployment/myapp'
+            }
+        }
+    }
+    
+    post {
+        always {
+            cleanWs()
+        }
+        success {
+            echo 'Pipeline completed successfully!'
+        }
+        failure {
+            echo 'Pipeline failed!'
+        }
+    }
+}
+```
+
+Jenkins with Kubernetes Plugin:
+```groovy
+// Jenkinsfile (Kubernetes)
+pipeline {
+    agent {
+        kubernetes {
+            yaml '''
+                apiVersion: v1
+                kind: Pod
+                spec:
+                  containers:
+                  - name: maven
+                    image: maven:3.8.1-jdk-8
+                    command:
+                    - cat
+                    tty: true
+                  - name: docker
+                    image: docker:latest
+                    command:
+                    - cat
+                    tty: true
+                    volumeMounts:
+                    - mountPath: /var/run/docker.sock
+                      name: docker-sock
+                  volumes:
+                  - name: docker-sock
+                    hostPath:
+                      path: /var/run/docker.sock
+            '''
+        }
+    }
+    
+    stages {
+        stage('Build') {
+            steps {
+                container('maven') {
+                    sh 'mvn clean package'
+                }
+            }
+        }
+        
+        stage('Docker Build') {
+            steps {
+                container('docker') {
+                    sh 'docker build -t myapp:$BUILD_NUMBER .'
+                }
+            }
+        }
+    }
+}
+```
+
+🔹 Kubernetes Rolling Updates & Rollbacks
+
+**Rolling Updates** allow you to update application versions without downtime by gradually replacing old pods with new ones.
+
+Rolling Update Configuration:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # Maximum number of pods above desired replicas
+      maxUnavailable: 0  # Maximum number of pods unavailable during update
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v1.0.0
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 10
+```
+
+Rolling Update Commands:
+```bash
+# Update image
+kubectl set image deployment/myapp myapp=myapp:v1.1.0
+
+# Update with specific strategy
+kubectl patch deployment myapp -p '{"spec":{"strategy":{"rollingUpdate":{"maxSurge":2,"maxUnavailable":1}}}}'
+
+# Check rollout status
+kubectl rollout status deployment/myapp
+
+# Pause rollout
+kubectl rollout pause deployment/myapp
+
+# Resume rollout
+kubectl rollout resume deployment/myapp
+
+# View rollout history
+kubectl rollout history deployment/myapp
+
+# Rollback to previous version
+kubectl rollout undo deployment/myapp
+
+# Rollback to specific revision
+kubectl rollout undo deployment/myapp --to-revision=2
+
+# Check rollout history with details
+kubectl rollout history deployment/myapp --revision=2
+```
+
+Blue-Green Deployment:
+```yaml
+# Blue deployment (current)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-blue
+  labels:
+    version: blue
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+      version: blue
+  template:
+    metadata:
+      labels:
+        app: myapp
+        version: blue
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v1.0.0
+        ports:
+        - containerPort: 8080
+---
+# Green deployment (new)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-green
+  labels:
+    version: green
+spec:
+  replicas: 0  # Start with 0 replicas
+  selector:
+    matchLabels:
+      app: myapp
+      version: green
+  template:
+    metadata:
+      labels:
+        app: myapp
+        version: green
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v1.1.0
+        ports:
+        - containerPort: 8080
+---
+# Service to switch between blue/green
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+spec:
+  selector:
+    app: myapp
+    version: blue  # Currently pointing to blue
+  ports:
+  - port: 80
+    targetPort: 8080
+```
+
+Canary Deployment:
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-canary
+spec:
+  replicas: 1  # Small number for canary
+  selector:
+    matchLabels:
+      app: myapp
+      track: canary
+  template:
+    metadata:
+      labels:
+        app: myapp
+        track: canary
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v1.1.0
+        ports:
+        - containerPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp-stable
+spec:
+  replicas: 9  # Majority of traffic
+  selector:
+    matchLabels:
+      app: myapp
+      track: stable
+  template:
+    metadata:
+      labels:
+        app: myapp
+        track: stable
+    spec:
+      containers:
+      - name: myapp
+        image: myapp:v1.0.0
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-service
+spec:
+  selector:
+    app: myapp  # Routes to both stable and canary
+  ports:
+  - port: 80
+    targetPort: 8080
+```
+
+🧪 Practice Project Steps:
+
+1. Set up ArgoCD:
+
+```bash
+# Install ArgoCD
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# Wait for installation
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd
+
+# Port forward to ArgoCD UI
+kubectl port-forward svc/argocd-server 8080:443 -n argocd
+
+# Get admin password
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+2. Create application manifests:
+
+```yaml
+# k8s/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+    spec:
+      containers:
+      - name: app
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app-service
+spec:
+  selector:
+    app: sample-app
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer
+```
+
+3. Create ArgoCD application:
+
+```yaml
+# argocd-app.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sample-app
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/your-username/your-repo
+    targetRevision: HEAD
+    path: k8s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: sample-app
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+```
+
+4. Set up GitHub Actions workflow:
+
+```yaml
+# .github/workflows/deploy.yml
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Run tests
+      run: |
+        echo "Running tests..."
+        # Add your test commands here
+    
+    - name: Build Docker image
+      run: |
+        docker build -t sample-app:${{ github.sha }} .
+    
+    - name: Push to registry
+      run: |
+        echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+        docker tag sample-app:${{ github.sha }} ${{ secrets.DOCKER_USERNAME }}/sample-app:${{ github.sha }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/sample-app:${{ github.sha }}
+
+  update-manifests:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        token: ${{ secrets.GH_TOKEN }}
+    
+    - name: Update image tag
+      run: |
+        sed -i "s|image: .*|image: ${{ secrets.DOCKER_USERNAME }}/sample-app:${{ github.sha }}|g" k8s/deployment.yaml
+    
+    - name: Commit and push changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add k8s/deployment.yaml
+        git commit -m "Update image to ${{ github.sha }}"
+        git push
+```
+
+5. Create Dockerfile:
+
+```dockerfile
+FROM nginx:alpine
+
+COPY index.html /usr/share/nginx/html/
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+6. Create simple web app:
+
+```html
+<!-- index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sample App</title>
+</head>
+<body>
+    <h1>Hello from Sample App!</h1>
+    <p>Version: <span id="version">1.0.0</span></p>
+    <script>
+        document.getElementById('version').textContent = new Date().toISOString();
+    </script>
+</body>
+</html>
+```
+
+7. Deploy with ArgoCD:
+
+```bash
+# Apply ArgoCD application
+kubectl apply -f argocd-app.yaml
+
+# Check application status
+argocd app get sample-app
+
+# Sync application
+argocd app sync sample-app
+
+# Check deployment
+kubectl get pods -n sample-app
+kubectl get services -n sample-app
+```
+
+8. Test rolling updates:
+
+```bash
+# Update image
+kubectl set image deployment/sample-app app=nginx:1.19 -n sample-app
+
+# Watch rollout
+kubectl rollout status deployment/sample-app -n sample-app
+
+# Check rollout history
+kubectl rollout history deployment/sample-app -n sample-app
+
+# Rollback if needed
+kubectl rollout undo deployment/sample-app -n sample-app
+```
+
+9. Set up monitoring for deployments:
+
+```yaml
+# monitoring/deployment-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-app-monitor
+  namespace: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: sample-app
+  endpoints:
+  - port: http
+    interval: 30s
+```
+
+10. Create deployment dashboard:
+
+```yaml
+# grafana-dashboard.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-dashboard
+  namespace: monitoring
+data:
+  deployment-dashboard.json: |
+    {
+      "dashboard": {
+        "title": "Deployment Monitoring",
+        "panels": [
+          {
+            "title": "Pod Count",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "kube_deployment_status_replicas{deployment=\"sample-app\"}"
+              }
+            ]
+          },
+          {
+            "title": "Available Pods",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "kube_deployment_status_replicas_available{deployment=\"sample-app\"}"
+              }
+            ]
+          }
+        ]
+      }
+    }
+```
+
+11. Set up alerts for deployment failures:
+
+```yaml
+# prometheus-rules.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: deployment-alerts
+  namespace: monitoring
+spec:
+  groups:
+  - name: deployment.rules
+    rules:
+    - alert: DeploymentFailed
+      expr: kube_deployment_status_condition{condition="Available",status="false"} == 1
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Deployment {{ $labels.deployment }} is not available"
+        description: "Deployment {{ $labels.deployment }} has been unavailable for more than 5 minutes"
+```
+
+12. Cleanup:
+
+```bash
+# Delete ArgoCD application
+kubectl delete -f argocd-app.yaml
+
+# Delete application resources
+kubectl delete namespace sample-app
+
+# Uninstall ArgoCD
+kubectl delete namespace argocd
+```
+
+This comprehensive guide covers all CI/CD and GitOps aspects in Kubernetes, from basic deployment strategies to advanced GitOps practices, with practical examples and complete automation workflows demonstrating continuous deployment and infrastructure management.
